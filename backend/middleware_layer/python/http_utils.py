@@ -8,8 +8,8 @@ def create_response(status_code, body):
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'OPTIONS,POST,GET,PUT,DELETE'
         },
-        'body': json.dumps(body)
+        'body': json.dumps(body) 
     }
 
 def create_error_response(status_code, error):
-    return create_response(status_code, {'error': error})
+    return create_response(status_code, {'message': error})

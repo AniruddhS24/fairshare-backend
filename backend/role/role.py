@@ -1,21 +1,13 @@
 import json
 import uuid
 import boto3
-from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
-from auth_utils import authenticate
+from botocore.exceptions import ClientError
 from http_utils import create_response, create_error_response
+from price_utils import formatPrice
+from auth_utils import authenticate
 
-table = boto3.resource('dynamodb').Table('splits')
-
-@authenticate
-def get(event, context):
-    receipt_id = event['pathParameters']['receipt_id']
-    response = table.query(
-        KeyConditionExpression=Key('receipt_id').eq(receipt_id)
-    )
-    items = response['Items']
-    return create_response(200, {'data': items})
+table = boto3.resource('dynamodb').Table('roles')
 
 @authenticate
 def post(event, context):
@@ -25,48 +17,58 @@ def post(event, context):
     item = {
         'id': uuid.uuid4().hex,
         'receipt_id': receipt_id,
-        'quantity': str(data.get('quantity', 0)),
-        'split': str(data.get('split', 'auto')),
         'user_id': user['id'],
-        'item_id': data.get('item_id', ''),
+        'role': data.get('role', 'unauthorized'),
     }
     table.put_item(Item=item)
     return create_response(201, {'message': 'Item created', 'data': item})
 
 @authenticate
-def get_by_id(event, context):
+def get_receipt_participants(event, context):
+    users_table = boto3.resource('dynamodb').Table('users')
     receipt_id = event['pathParameters']['receipt_id']
-    id = event['pathParameters']['split_id']
+    response = table.query(
+        KeyConditionExpression=Key('receipt_id').eq(receipt_id)
+    )
+    items = response['Items']
+    hosts = []
+    consumers = []
+    for item in items:
+        user = users_table.get_item(Key={'id': item['user_id']})
+        if item['role'] == 'host':
+            hosts.append(user['Item'])
+        else:
+            consumers.append(user['Item'])
+    return create_response(200, {'data': {'hosts': hosts, 'consumers': consumers}})
+
+@authenticate
+def get(event, context):
+    user = event['user']
+    receipt_id = event['pathParameters']['receipt_id']
     try:
-        response = table.get_item(Key={'receipt_id': receipt_id, 'id': id})
+        response = table.get_item(Key={'receipt_id': receipt_id, 'user_id': user['id']})
     except ClientError as e:
         return create_error_response(500, str(e))
     if 'Item' in response:
         return create_response(200, {'data': response['Item']})
-    return create_error_response(404, "Item not found")
+    return create_error_response(404, 'Item not found')
 
 @authenticate
-def update_by_id(event, context):
+def update(event, context):
+    user = event['user']
     receipt_id = event['pathParameters']['receipt_id']
-    id = event['pathParameters']['split_id']
     data = json.loads(event['body'])
     update_expression = "SET "
     expression_attribute_values = {}
-    if 'split' in data:
-        data['split'] = str(int(data['split']))
-        update_expression += "#split = :split, "
-        expression_attribute_values[':split'] = data['split']
-    if 'quantity' in data:
-        data['quantity'] = str(int(data['quantity']))
-        update_expression += "#quantity = :quantity, "
-        expression_attribute_values[':quantity'] = data['quantity']
+    if 'role' in data:
+        update_expression += "#role = :role, "
+        expression_attribute_values[':role'] = data['role']
     update_expression = update_expression.rstrip(", ")
     expression_attribute_names = {
-        "#split": "split",
-        "#quantity": "quantity"
+        "#role": "role",
     }
     table.update_item(
-        Key={'receipt_id': receipt_id, 'id': id},
+        Key={'receipt_id': receipt_id, 'user_id': user['id']},
         UpdateExpression=update_expression,
         ExpressionAttributeNames=expression_attribute_names,
         ExpressionAttributeValues=expression_attribute_values
@@ -75,8 +77,8 @@ def update_by_id(event, context):
 
 @authenticate
 def delete_by_id(event, context):
+    user = event['user']
     receipt_id = event['pathParameters']['receipt_id']
-    id = event['pathParameters']['split_id']
-    table.delete_item(Key={'receipt_id': receipt_id, 'id': id})
+    table.delete_item(Key={'receipt_id': receipt_id, 'user_id': user['id']})
     return create_response(200, {"message": "Item deleted"})
     

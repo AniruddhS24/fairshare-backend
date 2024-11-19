@@ -4,7 +4,7 @@ import jwt
 import boto3
 from boto3.dynamodb.conditions import Key
 import uuid
-from http_utils import create_response
+from http_utils import create_response, create_error_response
 
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table('users')
@@ -19,13 +19,13 @@ def create_token_lambda(event, context):
 def get_user_lambda(event, context):
     token = event.get("headers", {}).get("Authorization")
     if not token:
-        return create_response(401, {"error": "Authorization token missing"})
+        return create_error_response(401, "Authorization token missing")
     try:
         token = token.split(" ")[-1] # Bearer token
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return create_response(200, {"data": payload})
     except jwt.exceptions.InvalidTokenError:
-        return create_response(401, {"error": "Invalid token"})
+        return create_response(401, "Invalid token")
     
 def create_token(name, phone):
     response = table.query(

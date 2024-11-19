@@ -3,6 +3,7 @@ import json
 import re
 import boto3
 import uuid
+from auth_utils import authenticate
 from http_utils import create_response, create_error_response
 from price_utils import formatPrice
 
@@ -144,8 +145,9 @@ class Receipt:
                         filtered_prices[i]['text'].replace('$', ''))
         return output_items, output_quantities, output_prices, grand_total
 
-
+@authenticate
 def receipt_ocr(event, context):
+    user = event.get('user')
     packet = json.loads(event.get('body'))
     receipt_id = packet.get('key')
     response = textract.detect_document_text(
@@ -201,10 +203,8 @@ def receipt_ocr(event, context):
             Item={
                 'id': str(receipt_id),
                 'image_url': f'https://{BUCKET_NAME}.s3.amazonaws.com/{receipt_id}',
-                'host_id': "0",
                 'shared_cost': formatPrice(shared_cost),
                 'grand_total': formatPrice(grand_total),
-                'num_consumers': "0",
             }
         )
     except Exception as e:

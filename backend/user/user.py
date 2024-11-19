@@ -2,7 +2,8 @@ import json
 import uuid
 import boto3
 from botocore.exceptions import ClientError
-from http_utils import create_response
+from http_utils import create_response, create_error_response
+from auth_utils import authenticate
 
 table = boto3.resource('dynamodb').Table('users')
 
@@ -30,29 +31,32 @@ def post(event, context):
     table.put_item(Item=item)
     return create_response(201, {'message': 'Item created', 'data': item})
 
+@authenticate
 def get_by_id(event, context):
-    id = event['pathParameters']['user_id']
+    user = event['user']
     try:
-        response = table.get_item(Key={'id': id})
+        response = table.get_item(Key={'id': user['id']})
     except ClientError as e:
-        return create_response(500, {'message': str(e)})
+        return create_error_response(500, str(e))
     if 'Item' in response:
         return create_response(200, {'data': response['Item']})
-    else:
-        return create_response(404, {'message': 'Item not found'})
+    return create_error_response(404, "Item not found")
 
+@authenticate
 def update_by_id(event, context):
-    id = event['pathParameters']['user_id']
+    # TODO: Refactor this to use the same logic as other updates
+    user = event['user']
     data = json.loads(event['body'])
     table.update_item(
-        Key={'id': id},
+        Key={'id': user['id']},
         UpdateExpression='SET #data = :data',
         ExpressionAttributeNames={'#data': 'data'},
         ExpressionAttributeValues={':data': data}
     )
     return create_response(200, {'message': 'Item updated', 'data': data})
 
+@authenticate
 def delete_by_id(event, context):
-    id = event['pathParameters']['user_id']
-    table.delete_item(Key={'id': id})
-    return create_response(204, {'message': 'Item deleted'})
+    user = event['user']
+    table.delete_item(Key={'id': user['id']})
+    return create_response(200, {"message": "Item deleted"})

@@ -55,13 +55,13 @@ export class FairshareBackendStack extends Stack {
     });
 
     const itemsTable = new dynamodb.Table(this, "ItemsTable", {
-      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: "receipt_id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "id", type: dynamodb.AttributeType.STRING },
       tableName: "items",
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Create the Users table
     const usersTable = new dynamodb.Table(this, "UsersTable", {
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
       tableName: "users",
@@ -69,24 +69,20 @@ export class FairshareBackendStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Create the Splits table
-    const splitsTable = new dynamodb.Table(this, "SplitsTable", {
-      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
-      tableName: "splits",
+    const rolesTable = new dynamodb.Table(this, "RolesTable", {
+      partitionKey: { name: "receipt_id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "user_id", type: dynamodb.AttributeType.STRING },
+      tableName: "roles",
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Add GSI to the splits and items tables
-    itemsTable.addGlobalSecondaryIndex({
-      indexName: "itemsByReceiptId",
+    const splitsTable = new dynamodb.Table(this, "SplitsTable", {
       partitionKey: { name: "receipt_id", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "id", type: dynamodb.AttributeType.STRING },
-    });
-    splitsTable.addGlobalSecondaryIndex({
-      indexName: "splitsByReceiptId",
-      partitionKey: { name: "receipt_id", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      tableName: "splits",
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     // Add phone number GSI to the users table
@@ -141,7 +137,7 @@ export class FairshareBackendStack extends Stack {
             command: [
               "bash",
               "-c",
-              "pip install -r python/requirements.txt -t /asset-output && cp -au ./python /asset-output",
+              "pip install -r python/requirements.txt -t /asset-output/python && cp -au ./python /asset-output",
             ],
           },
         }
@@ -151,6 +147,10 @@ export class FairshareBackendStack extends Stack {
         lambda.Runtime.PYTHON_3_9,
       ],
     });
+
+    const sharedEnvironment = {
+      SECRET_JWT_KEY: process.env.SECRET_JWT_KEY || "",
+    };
 
     const rootHandlerLambda = new lambda.Function(this, "HealthLambda", {
       runtime: lambda.Runtime.PYTHON_3_9,
@@ -174,9 +174,7 @@ export class FairshareBackendStack extends Stack {
           ],
         },
       }),
-      environment: {
-        SECRET_JWT_KEY: process.env.SECRET_JWT_KEY || "",
-      },
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -195,9 +193,7 @@ export class FairshareBackendStack extends Stack {
           ],
         },
       }),
-      environment: {
-        SECRET_JWT_KEY: process.env.SECRET_JWT_KEY || "",
-      },
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -208,6 +204,7 @@ export class FairshareBackendStack extends Stack {
       handler: "upload.presigned_url",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/upload")),
       environment: {
+        ...sharedEnvironment,
         BUCKET_NAME: receiptImageBucket,
       },
       timeout: Duration.seconds(30),
@@ -220,6 +217,7 @@ export class FairshareBackendStack extends Stack {
       handler: "ocr.receipt_ocr",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/ocr")),
       environment: {
+        ...sharedEnvironment,
         BUCKET_NAME: receiptImageBucket,
       },
       timeout: Duration.seconds(30),
@@ -231,6 +229,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "receipt.post",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/receipt")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -240,6 +239,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "receipt.get_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/receipt")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -252,6 +252,7 @@ export class FairshareBackendStack extends Stack {
         runtime: lambda.Runtime.PYTHON_3_8,
         handler: "receipt.update_by_id",
         code: lambda.Code.fromAsset(path.join(__dirname, "../backend/receipt")),
+        environment: sharedEnvironment,
         timeout: Duration.seconds(30),
         role: sharedRole,
         layers: [middlewareLayer],
@@ -265,6 +266,7 @@ export class FairshareBackendStack extends Stack {
         runtime: lambda.Runtime.PYTHON_3_8,
         handler: "receipt.delete_by_id",
         code: lambda.Code.fromAsset(path.join(__dirname, "../backend/receipt")),
+        environment: sharedEnvironment,
         timeout: Duration.seconds(30),
         role: sharedRole,
         layers: [middlewareLayer],
@@ -275,6 +277,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "item.post",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/item")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -284,6 +287,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "item.get",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/item")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -293,6 +297,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "item.get_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/item")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -302,6 +307,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "item.update_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/item")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -311,6 +317,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "item.delete_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/item")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -320,6 +327,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "split.post",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/split")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -329,6 +337,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "split.get",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/split")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -338,6 +347,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "split.get_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/split")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -347,6 +357,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "split.update_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/split")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -356,6 +367,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "split.delete_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/split")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -365,6 +377,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "user.post",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/user")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -374,6 +387,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "user.get",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/user")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -383,6 +397,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "user.get_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/user")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -392,6 +407,7 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "user.update_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/user")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
@@ -401,10 +417,49 @@ export class FairshareBackendStack extends Stack {
       runtime: lambda.Runtime.PYTHON_3_8,
       handler: "user.delete_by_id",
       code: lambda.Code.fromAsset(path.join(__dirname, "../backend/user")),
+      environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
       layers: [middlewareLayer],
     });
+
+    const createPermissionLambda = new lambda.Function(
+      this,
+      "CreatePermission",
+      {
+        runtime: lambda.Runtime.PYTHON_3_8,
+        handler: "role.post",
+        code: lambda.Code.fromAsset(path.join(__dirname, "../backend/role")),
+        environment: sharedEnvironment,
+        timeout: Duration.seconds(30),
+        role: sharedRole,
+        layers: [middlewareLayer],
+      }
+    );
+
+    const getPermissionLambda = new lambda.Function(this, "GetPermission", {
+      runtime: lambda.Runtime.PYTHON_3_8,
+      handler: "role.get",
+      code: lambda.Code.fromAsset(path.join(__dirname, "../backend/role")),
+      environment: sharedEnvironment,
+      timeout: Duration.seconds(30),
+      role: sharedRole,
+      layers: [middlewareLayer],
+    });
+
+    const getReceiptParticipantsLambda = new lambda.Function(
+      this,
+      "GetReceiptParticipants",
+      {
+        runtime: lambda.Runtime.PYTHON_3_8,
+        handler: "role.get_receipt_participants",
+        code: lambda.Code.fromAsset(path.join(__dirname, "../backend/role")),
+        environment: sharedEnvironment,
+        timeout: Duration.seconds(30),
+        role: sharedRole,
+        layers: [middlewareLayer],
+      }
+    );
 
     receiptTable.grantReadWriteData(createReceiptLambda);
     receiptTable.grantReadWriteData(getReceiptByIdLambda);
@@ -415,6 +470,8 @@ export class FairshareBackendStack extends Stack {
     usersTable.grantReadWriteData(getUsersLambda);
     usersTable.grantReadWriteData(getUserByIdLambda);
     usersTable.grantReadWriteData(updateUserByIdLambda);
+    rolesTable.grantReadWriteData(createPermissionLambda);
+    rolesTable.grantReadWriteData(getPermissionLambda);
     usersTable.grantReadWriteData(deleteUserByIdLambda);
     itemsTable.grantReadWriteData(createItemLambda);
     itemsTable.grantReadWriteData(getItemsLambda);
@@ -443,6 +500,9 @@ export class FairshareBackendStack extends Stack {
     const itemByIDResource = itemResource.addResource("{item_id}");
     const splitResource = receiptByIDResource.addResource("split");
     const splitByIDResource = splitResource.addResource("{split_id}");
+    const roleResource = receiptByIDResource.addResource("role");
+    const receiptRolesResource =
+      receiptByIDResource.addResource("participants");
 
     uploadResource.addMethod(
       "GET",
@@ -535,6 +595,18 @@ export class FairshareBackendStack extends Stack {
     splitByIDResource.addMethod(
       "DELETE",
       new aws_apigateway.LambdaIntegration(deleteSplitByIdLambda)
+    );
+    roleResource.addMethod(
+      "POST",
+      new aws_apigateway.LambdaIntegration(createPermissionLambda)
+    );
+    roleResource.addMethod(
+      "GET",
+      new aws_apigateway.LambdaIntegration(getPermissionLambda)
+    );
+    receiptRolesResource.addMethod(
+      "GET",
+      new aws_apigateway.LambdaIntegration(getReceiptParticipantsLambda)
     );
 
     new CfnOutput(this, "ApiUrl", {

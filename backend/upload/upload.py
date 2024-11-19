@@ -3,10 +3,12 @@ import json
 import uuid
 import boto3
 from http_utils import create_response
+from auth_utils import authenticate
 
 s3 = boto3.client('s3')
 BUCKET_NAME = os.environ.get('BUCKET_NAME')
 
+@authenticate
 def presigned_url(event, context):
     file_name = uuid.uuid4().hex
     presigned_url = s3.generate_presigned_post(
