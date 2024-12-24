@@ -85,10 +85,25 @@ export class FairshareBackendStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    const otpTable = new dynamodb.Table(this, "OTPTable", {
+      partitionKey: { name: "phone", type: dynamodb.AttributeType.STRING },
+      timeToLiveAttribute: "ttl",
+      tableName: "otp",
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     // Add phone number GSI to the users table
     usersTable.addGlobalSecondaryIndex({
       indexName: "usersByPhoneNumber",
       partitionKey: { name: "phone", type: dynamodb.AttributeType.STRING },
+    });
+
+    // Add GSI to query splits by user
+    splitsTable.addGlobalSecondaryIndex({
+      indexName: "splitsByUser",
+      partitionKey: { name: "receipt_id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "user_id", type: dynamodb.AttributeType.STRING },
     });
 
     const api = new aws_apigateway.RestApi(this, "FairshareBackendAPI", {
@@ -193,6 +208,26 @@ export class FairshareBackendStack extends Stack {
           ],
         },
       }),
+      environment: sharedEnvironment,
+      timeout: Duration.seconds(30),
+      role: sharedRole,
+      layers: [middlewareLayer],
+    });
+
+    const createOTPLambda = new lambda.Function(this, "CreateOTPLambda", {
+      runtime: lambda.Runtime.PYTHON_3_8,
+      handler: "user.create_otp",
+      code: lambda.Code.fromAsset(path.join(__dirname, "../backend/user")),
+      environment: sharedEnvironment,
+      timeout: Duration.seconds(30),
+      role: sharedRole,
+      layers: [middlewareLayer],
+    });
+
+    const verifyOTPLambda = new lambda.Function(this, "VerifyOTPLambda", {
+      runtime: lambda.Runtime.PYTHON_3_8,
+      handler: "user.verify_otp",
+      code: lambda.Code.fromAsset(path.join(__dirname, "../backend/user")),
       environment: sharedEnvironment,
       timeout: Duration.seconds(30),
       role: sharedRole,
@@ -484,6 +519,8 @@ export class FairshareBackendStack extends Stack {
     splitsTable.grantReadWriteData(getSplitByIdLambda);
     splitsTable.grantReadWriteData(updateSplitByIdLambda);
     splitsTable.grantReadWriteData(deleteSplitByIdLambda);
+    otpTable.grantReadWriteData(createOTPLambda);
+    otpTable.grantReadWriteData(verifyOTPLambda);
 
     api.root.addMethod(
       "GET",
@@ -492,6 +529,8 @@ export class FairshareBackendStack extends Stack {
     const uploadResource = api.root.addResource("upload");
     const ocrResource = api.root.addResource("ocr");
     const tokenResource = api.root.addResource("token");
+    const generateOTPResource = api.root.addResource("otp_generate");
+    const verifyOTPResource = api.root.addResource("otp_verify");
     const userResource = api.root.addResource("user");
     const userByIDResource = userResource.addResource("{user_id}");
     const receiptResource = api.root.addResource("receipt");
@@ -519,6 +558,14 @@ export class FairshareBackendStack extends Stack {
     tokenResource.addMethod(
       "GET",
       new aws_apigateway.LambdaIntegration(decodeJWTLambda)
+    );
+    generateOTPResource.addMethod(
+      "POST",
+      new aws_apigateway.LambdaIntegration(createOTPLambda)
+    );
+    verifyOTPResource.addMethod(
+      "POST",
+      new aws_apigateway.LambdaIntegration(verifyOTPLambda)
     );
     userResource.addMethod(
       "POST",

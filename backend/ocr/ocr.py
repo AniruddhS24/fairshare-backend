@@ -62,6 +62,47 @@ class Receipt:
         except ValueError:
             return False
 
+    def detect_prices(self, prices):
+        if len(prices) == 0:
+            return []
+        
+        def center_coords(price):
+            xc = (price['bounding_box'][0]['x'] + price['bounding_box'][1]['x'])/2
+            yc = (price['bounding_box'][0]['y'] + price['bounding_box'][1]['y'])/2
+            return xc, yc
+        
+        prices_sorted = sorted(prices, key=lambda x: x['bounding_box'][0]['y'])
+        med_gap = median([prices_sorted[i]['bounding_box'][0]['y'] - prices_sorted[i-1]['bounding_box'][0]['y'] for i in range(1, len(prices_sorted))])
+        x_tol = 0.1 # 10% tolerance for horizontal difference (assume prices aligned vertically)
+        y_tol = med_gap*1.1 # 10% extra tolerance from median gap
+
+        price_groups = []
+        current_group = [prices_sorted[0]]
+        for i in range(1, len(prices_sorted)):
+            xc_cur, yc_cur = center_coords(prices_sorted[i])
+            xc_prev, yc_prev = center_coords(current_group[-1])
+            x_diff = abs(xc_cur - xc_prev)
+            y_diff = abs(yc_cur - yc_prev)
+            if y_diff < y_tol and x_diff < x_tol:
+                current_group.append(prices_sorted[i])
+            else:
+                price_groups.append(current_group)
+                current_group = [prices_sorted[i]]
+        price_groups.append(current_group)
+
+        # Receipt prices is likely the largest group
+        largest_group = 0
+        for i in range(1, len(price_groups)):
+            if len(price_groups[i]) > len(price_groups[largest_group]):
+                largest_group = i
+        
+        res = []
+        for i in range(largest_group, len(price_groups)):
+            res.extend(price_groups[i])
+
+        return res
+
+
     def match_price_to_item(self, words, min_y, max_y, price_x):
         best = []
         for word in words:
@@ -106,12 +147,13 @@ class Receipt:
     def parse(self, words):
         prices = [word for word in words if self.isprice(word['text'])]
 
+        filtered_prices = self.detect_prices(prices)
         # find mode of x coordinates to determine if the price is on the right side
-        x_coords = [word['bounding_box'][1]['x'] for word in prices]
-        median_x = median(x_coords)
-        filtered_prices = [
-            word for word in prices if abs(word['bounding_box'][1]['x'] - median_x) < 0.1]
-        filtered_prices.sort(key=lambda x: x['bounding_box'][0]['y'])
+        # x_coords = [word['bounding_box'][1]['x'] for word in prices]
+        # median_x = median(x_coords)
+        # filtered_prices = [
+        #     word for word in prices if abs(word['bounding_box'][1]['x'] - median_x) < 0.1]
+        # filtered_prices.sort(key=lambda x: x['bounding_box'][0]['y'])
 
         # filter words to only include those in the receipt items
         output_items = []
@@ -121,7 +163,7 @@ class Receipt:
         epsilon = 0.005
         word_index = 0
         specials_seen = False
-        while word_index < len(words) and words[word_index]['bounding_box'][0]['y'] < filtered_prices[0]['bounding_box'][0]['y'] - epsilon:
+        while word_index < len(words) and len(filtered_prices) > 0 and words[word_index]['bounding_box'][0]['y'] < filtered_prices[0]['bounding_box'][0]['y'] - epsilon:
             word_index += 1
         for i in range(len(filtered_prices)):
             cur_bound = filtered_prices[i]['bounding_box'][0]['y']
@@ -131,9 +173,11 @@ class Receipt:
                 words, cur_bound-epsilon, next_bound+epsilon, filtered_prices[i]['bounding_box'][0]['x'])
             special = self.is_special_field(item)
             if not special:
-                if specials_seen:
+                if specials_seen: # Skip if we've seen special fields
                     continue
                 quantity, name = self.parse_item_quantity(item)
+                # Prevent serial number from being interpreted as quantity
+                quantity = 1 if quantity > 100 or quantity < 1 else quantity
                 output_items.append(name)
                 output_quantities.append(quantity)
                 output_prices.append(
@@ -147,7 +191,6 @@ class Receipt:
 
 @authenticate
 def receipt_ocr(event, context):
-    user = event.get('user')
     packet = json.loads(event.get('body'))
     receipt_id = packet.get('key')
     response = textract.detect_document_text(

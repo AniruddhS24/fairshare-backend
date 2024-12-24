@@ -22,11 +22,11 @@ def authenticate(handler):
                 "body": json.dumps({"error": "Authorization token missing"})
             }
         try:
-            token = token.split(" ")[1]
+            token = token.split(" ")[-1]
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             event['user'] = payload
             return handler(event, context)
-        except InvalidTokenError:
+        except InvalidTokenError as e:
             return {
                 "statusCode": 401,
                 'headers': {
@@ -34,6 +34,6 @@ def authenticate(handler):
                     'Access-Control-Allow-Origin': '*',
                     'Access-Control-Allow-Methods': 'OPTIONS,POST,GET,PUT,DELETE'
                 },
-                "body": json.dumps({"error": "Invalid token"})
+                "body": json.dumps({"error": str(e)})
             }
     return wrapper

@@ -10,10 +10,20 @@ table = boto3.resource('dynamodb').Table('splits')
 
 @authenticate
 def get(event, context):
+    only_mine = False
+    if event['queryStringParameters']:
+        only_mine = event['queryStringParameters'].get('only_mine', 'false') == 'true'
+    user = event['user']
     receipt_id = event['pathParameters']['receipt_id']
-    response = table.query(
-        KeyConditionExpression=Key('receipt_id').eq(receipt_id)
-    )
+    if only_mine:
+        response = table.query(
+            IndexName="splitsByUser",
+            KeyConditionExpression=Key("receipt_id").eq(receipt_id) & Key("user_id").eq(user['id'])
+        )
+    else:
+        response = table.query(
+            KeyConditionExpression=Key('receipt_id').eq(receipt_id)
+        )
     items = response['Items']
     return create_response(200, {'data': items})
 
